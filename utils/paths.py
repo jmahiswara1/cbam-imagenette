@@ -17,11 +17,13 @@ def resolve_data_dir(data_dir=None):
     return DEFAULT_DATA_DIR if data_dir is None else Path(data_dir).expanduser().resolve()
 
 
-def validate_dataset(data_dir=None):
+def validate_dataset(data_dir=None, *, include_test=True):
     """Periksa 10 kelas dan jumlah gambar resmi; tidak memeriksa isi setiap gambar."""
     data_dir = resolve_data_dir(data_dir)
     counts = {}
     for split, expected in EXPECTED_COUNTS.items():
+        if split == "val" and not include_test:
+            continue
         split_dir = data_dir / split
         if not split_dir.is_dir():
             raise FileNotFoundError(

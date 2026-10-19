@@ -77,25 +77,29 @@ def compute_metrics(targets, predictions, classes):
     }
 
 
-def aggregate_results(rows):
+def aggregate_results(rows, metric_names=("accuracy_percent", "f1_macro")):
     result = {"n": len(rows), "std_ddof": 1, "seeds": rows}
-    for name in ("accuracy_percent", "f1_macro"):
+    for name in metric_names:
         values = [row[name] for row in rows]
         result[name] = {"mean": statistics.mean(values) if values else None,
                         "std": statistics.stdev(values) if len(values) > 1 else None}
     return result
 
 
-def save_summary(run_dir, rows, *, status, requested_seeds, error=None):
-    summary = {"status": status, "requested_seeds": requested_seeds, **aggregate_results(rows)}
+def save_summary(run_dir, rows, *, status, requested_seeds, error=None, validation_only=False):
+    metric_names = ("best_val_accuracy_percent", "best_val_loss") if validation_only else ("accuracy_percent", "f1_macro")
+    summary = {"status": status, "requested_seeds": requested_seeds,
+               "evaluation_mode": "internal_validation_only" if validation_only else "final_evaluation",
+               **aggregate_results(rows, metric_names)}
     if error is not None:
         summary["error"] = error
     write_json(run_dir / "summary.json", summary)
     with (run_dir / "summary.csv").open("w", newline="", encoding="utf-8") as stream:
-        writer = csv.DictWriter(stream, fieldnames=(
-            "seed", "best_epoch", "best_val_accuracy_percent", "best_val_loss",
-            "test_loss", "accuracy_percent", "f1_macro", "training_seconds",
-        ))
+        fields = ["seed", "best_epoch", "best_val_accuracy_percent", "best_val_loss"]
+        if not validation_only:
+            fields.extend(("test_loss", "accuracy_percent", "f1_macro"))
+        fields.append("training_seconds")
+        writer = csv.DictWriter(stream, fieldnames=fields)
         writer.writeheader()
         writer.writerows(rows)
 
@@ -130,7 +134,7 @@ def environment_snapshot(device):
         snapshot.update({"git_commit": None, "git_dirty": None})
     snapshot["source_sha256"] = {
         name: hashlib.sha256((PROJECT_ROOT / name).read_bytes()).hexdigest()
-        for name in ("train.py", "models/cbam_resnet.py", "utils/dataset.py", "utils/paths.py", "utils/training.py")
+        for name in ("train.py", "tune_lr.py", "models/cbam_resnet.py", "utils/dataset.py", "utils/paths.py", "utils/training.py")
     }
     return snapshot
 

@@ -105,6 +105,8 @@ def parse_args(argv=None):
     parser.add_argument("--data-dir", type=Path, help="Default: data/imagenette2-160 relatif terhadap proyek.")
     parser.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / "outputs")
     parser.add_argument("--run-name", help="Nama folder eksperimen baru; tidak boleh sudah ada.")
+    parser.add_argument("--validation-only", action="store_true",
+                        help="Hanya latih dan validasi internal; tidak membaca folder evaluasi akhir.")
     args = parser.parse_args(argv)
     if args.epochs < 1 or args.batch_size < 1 or args.num_workers < 0:
         parser.error("epochs dan batch-size harus positif; num-workers harus >= 0.")
@@ -140,16 +142,18 @@ def run_seed(seed, config, run_dir, device, logger):
     try:
         set_seed(seed)
         loaders = get_dataloaders(data_dir=config["data_dir"], batch_size=config["batch_size"],
-                                  img_size=config["image_size"], seed=seed, num_workers=config["num_workers"])
+                                  img_size=config["image_size"], seed=seed, num_workers=config["num_workers"],
+                                  include_test=not config["validation_only"])
         train_loader, val_loader, test_loader = loaders
-        classes = test_loader.dataset.classes
+        training_dataset = train_loader.dataset.dataset
+        classes = training_dataset.classes
         if len(classes) != 10:
             raise ValueError("Eksperimen ini membutuhkan tepat 10 kelas Imagenette.")
         split = {"seed": seed, "train_indices": list(train_loader.dataset.indices),
                  "internal_val_indices": list(val_loader.dataset.indices),
                  "counts": dict(zip(("train", "internal_validation", "evaluation"),
-                                    (len(loader.dataset) for loader in loaders))),
-                 "class_to_idx": test_loader.dataset.class_to_idx,
+                                    (len(loader.dataset) if loader is not None else None for loader in loaders))),
+                 "class_to_idx": training_dataset.class_to_idx,
                  "class_names": {name: CLASS_NAMES.get(name, name) for name in classes}}
         write_json(seed_dir / "split.json", split)
         seed_config = {**config, "seed": seed}
@@ -206,6 +210,21 @@ def run_seed(seed, config, run_dir, device, logger):
                         validation["loss"], validation["accuracy_percent"], " | best" if improved else "")
         del checkpoint, optimizer, scheduler
         model.zero_grad(set_to_none=True)
+        plot_history(history, seed_dir / "training_curves.png", seed)
+        training_seconds = sum(row["epoch_seconds"] for row in history)
+        result = {"seed": seed, "best_epoch": best_epoch, "best_val_accuracy_percent": best_accuracy,
+                  "best_val_loss": best_loss, "training_seconds": training_seconds}
+        if config["validation_only"]:
+            write_json(seed_dir / "metrics.json", {
+                **result, "evaluation_mode": "internal_validation_only", "test_evaluated": False,
+                "n_internal_validation_samples": len(val_loader.dataset), "parameter_count": parameter_count,
+                "seed_wall_seconds": time.perf_counter() - start,
+                "checkpoint_selection": config["checkpoint_selection"],
+            })
+            write_json(seed_dir / "status.json", {"status": "completed", "seed": seed,
+                                                  "epochs_completed": config["epochs"], "best_epoch": best_epoch})
+            logger.info("Seed %d selesai | validasi internal %.2f%% | tanpa evaluasi akhir", seed, best_accuracy)
+            return result
         best = torch.load(seed_dir / "best.pt", map_location="cpu", weights_only=True)
         model.load_state_dict(best["model_state_dict"])
         write_json(seed_dir / "status.json", {"status": "evaluating", "seed": seed,
@@ -219,11 +238,7 @@ def run_seed(seed, config, run_dir, device, logger):
         evaluation_seconds = time.perf_counter() - evaluation_start
         metrics = save_evaluation_artifacts(seed_dir, evaluation, classes, test_loader.dataset.samples,
                                             Path(config["data_dir"]), seed=seed, best_epoch=best_epoch)
-        plot_history(history, seed_dir / "training_curves.png", seed)
-        training_seconds = sum(row["epoch_seconds"] for row in history)
-        result = {"seed": seed, "best_epoch": best_epoch, "best_val_accuracy_percent": best_accuracy,
-                  "best_val_loss": best_loss, "test_loss": evaluation["loss"], **metrics,
-                  "training_seconds": training_seconds}
+        result.update({"test_loss": evaluation["loss"], **metrics})
         write_json(seed_dir / "metrics.json", {
             **result, "checkpoint": "best.pt", "n_evaluation_samples": evaluation["n_samples"],
             "parameter_count": parameter_count, "evaluation_seconds": evaluation_seconds,
@@ -246,7 +261,7 @@ def run_experiment(args):
         raise RuntimeError("CUDA tidak tersedia. Aktifkan GPU atau pilih --device cpu.")
     device = torch.device("cuda:0" if args.device != "cpu" and torch.cuda.is_available() else "cpu")
     data_dir = resolve_data_dir(args.data_dir)
-    source_counts = validate_dataset(data_dir)
+    source_counts = validate_dataset(data_dir, include_test=not args.validation_only)
     run_name = args.run_name or datetime.now(timezone.utc).strftime("cbam-%Y%m%dT%H%M%S%fZ")
     output_dir = args.output_dir.expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -263,6 +278,7 @@ def run_experiment(args):
         "optimizer": "SGD", "momentum": 0.9, "weight_decay": 5e-4,
         "scheduler": "CosineAnnealingLR", "scheduler_t_max": args.epochs,
         "seeds": args.seeds, "num_workers": args.num_workers, "device": str(device),
+        "validation_only": args.validation_only,
         "data_dir": str(data_dir), "source_counts": source_counts, "internal_val_fraction": 0.10,
         "normalization_mean": [0.485, 0.456, 0.406], "normalization_std": [0.229, 0.224, 0.225],
         "checkpoint_selection": "maximum internal validation accuracy; minimum loss on ties",
@@ -272,17 +288,21 @@ def run_experiment(args):
         write_json(run_dir / "config.json", config)
         set_seed(args.seeds[0])
         write_json(run_dir / "environment.json", environment_snapshot(device))
-        save_summary(run_dir, results, status="running", requested_seeds=args.seeds)
+        save_summary(run_dir, results, status="running", requested_seeds=args.seeds,
+                     validation_only=args.validation_only)
         logger.info("Perangkat: %s | hasil: %s", device, run_dir)
         for seed in args.seeds:
             results.append(run_seed(seed, config, run_dir, device, logger))
-            save_summary(run_dir, results, status="running", requested_seeds=args.seeds)
-        save_summary(run_dir, results, status="completed", requested_seeds=args.seeds)
+            save_summary(run_dir, results, status="running", requested_seeds=args.seeds,
+                         validation_only=args.validation_only)
+        save_summary(run_dir, results, status="completed", requested_seeds=args.seeds,
+                     validation_only=args.validation_only)
         logger.info("Eksperimen selesai. Ringkasan: %s", run_dir / "summary.json")
         return run_dir
     except BaseException as exc:
         save_summary(run_dir, results, status="interrupted" if isinstance(exc, KeyboardInterrupt) else "failed",
-                     requested_seeds=args.seeds, error=f"{type(exc).__name__}: {exc}")
+                     requested_seeds=args.seeds, error=f"{type(exc).__name__}: {exc}",
+                     validation_only=args.validation_only)
         logger.exception("Eksperimen berhenti; hasil yang sudah tersimpan dipertahankan.")
         raise
     finally:

@@ -58,6 +58,7 @@ class TrainingTests(unittest.TestCase):
     def test_defaults_keep_the_original_experiment(self):
         args = train.parse_args([])
         self.assertEqual((args.epochs, args.batch_size, args.lr, args.seeds), (30, 64, 0.01, [0, 1, 2]))
+        self.assertFalse(args.validation_only)
 
     def fixtures(self):
         data_dir = self.root / "fixture-data"
@@ -132,6 +133,39 @@ class TrainingTests(unittest.TestCase):
         status = json.loads((self.root / "fixture-run/seed_7/status.json").read_text())
         self.assertEqual((summary["status"], summary["n"], status["status"]), ("failed", 0, "failed"))
         self.assertIn("fixture training failure", summary["error"])
+
+    def test_validation_only_does_not_evaluate_or_save_held_out_predictions(self):
+        args, loaders = self.fixtures()
+        args.validation_only = True
+        validation_calls = []
+
+        def validation(model, loader, criterion, device, *, collect_predictions=False):
+            self.assertIs(loader, loaders[1])
+            self.assertFalse(collect_predictions)
+            validation_calls.append(True)
+            return {"loss": 0.4, "accuracy_percent": 75.0, "n_samples": 2}
+
+        with patch("train.validate_dataset", return_value={"train": 6}) as dataset_check, \
+             patch("train.get_dataloaders", return_value=(*loaders[:2], None)) as loader_factory, \
+             patch("train.environment_snapshot", return_value={}), \
+             patch("train.CBAMResNet18", side_effect=lambda num_classes: torch.nn.Sequential(
+                 torch.nn.Flatten(), torch.nn.Linear(3 * 8 * 8, num_classes))), \
+             patch("train.evaluate", side_effect=validation), \
+             patch("train.save_evaluation_artifacts") as evaluation_artifacts:
+            run_dir = train.run_experiment(args)
+        self.assertFalse(dataset_check.call_args.kwargs["include_test"])
+        self.assertFalse(loader_factory.call_args.kwargs["include_test"])
+        evaluation_artifacts.assert_not_called()
+        self.assertEqual(len(validation_calls), 2)
+        summary = json.loads((run_dir / "summary.json").read_text())
+        metrics = json.loads((run_dir / "seed_7/metrics.json").read_text())
+        split = json.loads((run_dir / "seed_7/split.json").read_text())
+        self.assertEqual(summary["evaluation_mode"], "internal_validation_only")
+        self.assertNotIn("accuracy_percent", summary)
+        self.assertFalse(metrics["test_evaluated"])
+        self.assertIsNone(split["counts"]["evaluation"])
+        self.assertFalse((run_dir / "seed_7/predictions.csv").exists())
+        self.assertTrue((run_dir / "seed_7/best.pt").is_file())
 
 
 if __name__ == "__main__":

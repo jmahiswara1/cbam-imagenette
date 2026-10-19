@@ -15,11 +15,12 @@ def seed_worker(worker_id):
     np.random.seed(worker_seed)
 
 
-def get_dataloaders(data_dir=None, batch_size=64, img_size=128, seed=0, num_workers=2):
+def get_dataloaders(data_dir=None, batch_size=64, img_size=128, seed=0, num_workers=2, *, include_test=True):
+    """Tuning memakai include_test=False agar folder evaluasi akhir tidak dibaca."""
     data_dir = resolve_data_dir(data_dir)
     train_dir = data_dir / "train"
     val_dir = data_dir / "val"
-    for directory in (train_dir, val_dir):
+    for directory in ((train_dir, val_dir) if include_test else (train_dir,)):
         if not directory.is_dir():
             raise FileNotFoundError(
                 f"Folder dataset tidak ditemukan: {directory}. "
@@ -40,9 +41,11 @@ def get_dataloaders(data_dir=None, batch_size=64, img_size=128, seed=0, num_work
     ])
 
     full_train_dataset = datasets.ImageFolder(root=train_dir, transform=train_transform)
-    test_dataset = datasets.ImageFolder(root=val_dir, transform=val_transform)
-    if full_train_dataset.class_to_idx != test_dataset.class_to_idx:
-        raise ValueError("Kelas pada folder train dan val harus sama.")
+    test_dataset = None
+    if include_test:
+        test_dataset = datasets.ImageFolder(root=val_dir, transform=val_transform)
+        if full_train_dataset.class_to_idx != test_dataset.class_to_idx:
+            raise ValueError("Kelas pada folder train dan val harus sama.")
 
     targets = full_train_dataset.targets
     train_idx, internal_val_idx = train_test_split(
@@ -62,7 +65,9 @@ def get_dataloaders(data_dir=None, batch_size=64, img_size=128, seed=0, num_work
                               generator=torch.Generator().manual_seed(seed), **loader_options)
     val_loader = DataLoader(internal_val_subset, shuffle=False,
                             generator=torch.Generator().manual_seed(seed + 1), **loader_options)
-    test_loader = DataLoader(test_dataset, shuffle=False,
-                             generator=torch.Generator().manual_seed(seed + 2), **loader_options)
+    test_loader = None
+    if include_test:
+        test_loader = DataLoader(test_dataset, shuffle=False,
+                                 generator=torch.Generator().manual_seed(seed + 2), **loader_options)
 
     return train_loader, val_loader, test_loader
