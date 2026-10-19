@@ -32,30 +32,47 @@ Launcher, perintah pertama dapat diganti dengan `py -3.13 -m venv .venv`.
 Pengunduhan dilewati jika dataset sudah lengkap. Pembagian data: **8.524 gambar
 latih**, **948 validasi internal**, dan **3.928 evaluasi akhir**.
 
-**3. Jalankan pelatihan**
+**3. Uji pipeline**
 
-Uji alur program dengan satu epoch dan satu seed:
+Uji ketiga kandidat learning rate dengan satu epoch dan seed 0:
 
 ```powershell
-.\.venv\Scripts\python.exe train.py --epochs 1 --seeds 0 --device cuda --run-name smoke-1epoch
+.\.venv\Scripts\python.exe tune_lr.py --epochs 1 --device cuda --run-name smoke-tuning
 ```
 
-Jalankan eksperimen utama:
+Hasil uji singkat ini hanya memeriksa alur, belum menentukan LR eksperimen utama.
+
+**4. Pilih learning rate, lalu jalankan eksperimen utama**
+
+Bandingkan LR **0.01, 0.05, dan 0.1**, masing-masing 30 epoch dengan seed 0:
 
 ```powershell
-.\.venv\Scripts\python.exe train.py --device cuda --run-name cbam-full-30epoch
+.\.venv\Scripts\python.exe tune_lr.py --device cuda --run-name lr-search-30epoch
+```
+
+Tuning hanya memakai data latih dan validasi internal, dengan pembagian data serta
+inisialisasi yang sama. LR dipilih dari akurasi validasi terbaik; nilai seri
+dipecahkan oleh loss lebih rendah, lalu LR lebih kecil. Perbandingan tersimpan di
+`outputs/lr-search-30epoch/results.csv`.
+
+Gunakan LR terpilih untuk pelatihan utama:
+
+```powershell
+$selectedLr = (Get-Content outputs/lr-search-30epoch/selected_lr.json -Raw | ConvertFrom-Json).learning_rate
+.\.venv\Scripts\python.exe train.py --lr $selectedLr --device cuda --run-name cbam-full-30epoch
 ```
 
 Konfigurasi bawaan: **30 epoch per seed**, seed **0, 1, 2**, batch **64**, SGD dengan
-learning rate **0.01**, dan cosine annealing. Gunakan nama run baru untuk setiap
-percobaan agar hasil sebelumnya tetap tersimpan. Untuk melihat opsi lainnya,
+cosine annealing. Tanpa `--lr`, `train.py` memakai **0.01**. Gunakan nama run baru
+untuk setiap percobaan agar hasil sebelumnya tetap tersimpan. Untuk melihat opsi lainnya,
 jalankan `.\.venv\Scripts\python.exe train.py --help`.
 
 ## Google Colab
 
 Buka [setup_colab.ipynb](notebooks/setup_colab.ipynb), pilih runtime GPU, lalu ikuti
 sel secara berurutan. Notebook mendukung Python **3.12-3.13** dan meminta URL
-repositori GitHub yang sudah diunggah. Contoh perintah pelatihan ada di bagian akhir.
+repositori GitHub yang sudah diunggah. Sel tuning dan pelatihan utama ada di bagian
+akhir; aktifkan masing-masing saat siap menjalankannya.
 
 Unduh atau simpan folder hasil sebelum runtime Colab berakhir.
 
@@ -80,12 +97,13 @@ serta diabaikan Git.
 
 ```text
 train.py        Pelatihan dan evaluasi
+tune_lr.py      Pencarian learning rate dari validasi internal
 check_env.py    Pemeriksaan environment dan GPU
 models/         Definisi ResNet-18 dan CBAM
 utils/          Pengolahan data dan penyimpanan hasil
 notebooks/      Setup Google Colab
 requirements/   Daftar dependensi
-tests/         Pengujian pipeline
+tests/          Pengujian pipeline
 ```
 
 ## Pengujian
@@ -94,8 +112,9 @@ tests/         Pengujian pipeline
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Enam tes regresi dan uji satu epoch penuh pada RTX 3050 sudah berhasil. Eksperimen
-utama 30 epoch, implementasi ablasi, dan pengujian langsung di Colab belum dilakukan.
+12 tes regresi dan uji tuning tiga LR, masing-masing satu epoch pada RTX 3050,
+sudah berhasil. Tuning dan eksperimen utama 30 epoch, implementasi ablasi, serta
+pengujian langsung di Colab belum dilakukan.
 
 ## Referensi
 
