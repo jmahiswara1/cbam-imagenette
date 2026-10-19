@@ -1,0 +1,33 @@
+# Environment dan instalasi lokal
+.venv/
+env/
+.env
+.env.*
+
+# Dataset dan arsip unduhan
+data/
+docs/
+*.tgz
+
+# Hasil komputasi lokal (folder tetap tersedia setelah clone)
+outputs/*
+!outputs/.gitkeep
+*.pt
+*.pth
+*.ckpt
+
+# Cache Python, notebook, dan analisis sementara
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+tmp/
+.graphify/
+graphify-out/
+
+# Berkas sistem operasi
+.DS_Store
+Thumbs.db
+desktop.ini
