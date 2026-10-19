@@ -1,8 +1,19 @@
+import random
+
+import numpy as np
 import torch
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
 from sklearn.model_selection import train_test_split
 from utils.paths import resolve_data_dir
+
+
+def seed_worker(worker_id):
+    """Samakan seed Python/NumPy dengan seed worker yang diberikan PyTorch."""
+    worker_seed = torch.initial_seed() % (2**32)
+    random.seed(worker_seed)
+    np.random.seed(worker_seed)
+
 
 def get_dataloaders(data_dir=None, batch_size=64, img_size=128, seed=0, num_workers=2):
     data_dir = resolve_data_dir(data_dir)
@@ -46,9 +57,12 @@ def get_dataloaders(data_dir=None, batch_size=64, img_size=128, seed=0, num_work
     internal_val_subset = Subset(val_dataset_base, internal_val_idx)
 
     loader_options = {"batch_size": batch_size, "num_workers": num_workers,
-                      "pin_memory": torch.cuda.is_available()}
-    train_loader = DataLoader(train_subset, shuffle=True, **loader_options)
-    val_loader = DataLoader(internal_val_subset, shuffle=False, **loader_options)
-    test_loader = DataLoader(test_dataset, shuffle=False, **loader_options)
+                      "pin_memory": torch.cuda.is_available(), "worker_init_fn": seed_worker}
+    train_loader = DataLoader(train_subset, shuffle=True,
+                              generator=torch.Generator().manual_seed(seed), **loader_options)
+    val_loader = DataLoader(internal_val_subset, shuffle=False,
+                            generator=torch.Generator().manual_seed(seed + 1), **loader_options)
+    test_loader = DataLoader(test_dataset, shuffle=False,
+                             generator=torch.Generator().manual_seed(seed + 2), **loader_options)
 
     return train_loader, val_loader, test_loader
