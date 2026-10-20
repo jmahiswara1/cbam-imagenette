@@ -9,7 +9,8 @@ from pathlib import Path
 
 from utils.paths import resolve_data_dir, validate_dataset
 
-DATASET_URL = "https://cdn.fast.ai/data/imagenette2-160.tgz"
+# Tautan Imagenette 160 px yang tercantum di https://github.com/fastai/imagenette.
+DATASET_URL = "https://s3.amazonaws.com/fast-ai-imageclas/imagenette2-160.tgz"
 
 
 def download_dataset(data_dir=None):

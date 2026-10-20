@@ -86,7 +86,7 @@ def run_checks(report, args):
     loaders = get_dataloaders(data_dir=data_dir, batch_size=args.batch_size, seed=0, num_workers=0)
     split_names = ("train", "internal_validation", "evaluation")
     split_counts = {name: len(loader.dataset) for name, loader in zip(split_names, loaders)}
-    require(split_counts == {"train": 8524, "internal_validation": 948, "evaluation": 3928},
+    require(split_counts == {"train": 8522, "internal_validation": 947, "evaluation": 3925},
             f"Pembagian dataset tidak sesuai rancangan: {split_counts}")
     report["dataset"] = {"path": str(data_dir), "source_counts": source_counts, "split_counts": split_counts}
     batches = []
@@ -145,8 +145,8 @@ def main():
     parser.add_argument("--output", type=Path, default=PROJECT_ROOT / "outputs" / "environment-local.json",
                         help="Lokasi laporan pemeriksaan JSON.")
     args = parser.parse_args()
-    if not 1 <= args.batch_size <= 948:
-        parser.error("--batch-size harus berada di antara 1 dan 948.")
+    if not 1 <= args.batch_size <= 947:
+        parser.error("--batch-size harus berada di antara 1 dan 947.")
     report = {
         "purpose": "environment_smoke_test", "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "python_version": platform.python_version(), "python_executable": sys.executable,

@@ -140,6 +140,9 @@ def environment_snapshot(device):
 
 
 def _pyplot():
+    # Colab dapat mewariskan backend inline yang tidak terpasang pada venv proyek.
+    # Atur sebelum import: Matplotlib memvalidasi MPLBACKEND saat diimpor.
+    os.environ["MPLBACKEND"] = "Agg"
     if "MPLCONFIGDIR" not in os.environ:
         cache_dir = PROJECT_ROOT / "tmp" / "matplotlib"
         cache_dir.mkdir(parents=True, exist_ok=True)

@@ -4,7 +4,8 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATA_DIR = PROJECT_ROOT / "data" / "imagenette2-160"
-EXPECTED_COUNTS = {"train": 9472, "val": 3928}
+# Jumlah gambar pada arsip resmi; salinan tambahan '(1).JPEG' bukan sampel baru.
+EXPECTED_COUNTS = {"train": 9469, "val": 3925}
 CLASS_IDS = (
     "n01440764", "n02102040", "n02979186", "n03000684", "n03028079",
     "n03394916", "n03417042", "n03425413", "n03445777", "n03888257",
